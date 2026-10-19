@@ -123,3 +123,142 @@ class TriageQueue:
 
     def is_empty(self) -> bool:
         return len(self) == 0
+
+# ---------------------------------------------------------------------------
+# Interfaz de línea de comandos
+# ---------------------------------------------------------------------------
+
+LEVEL_LABELS = {1: "crítico", 2: "urgente", 3: "estándar"}
+
+
+class TriageCLI:
+    """
+    Menú de texto en bucle.
+    Solo gestiona entrada y salida; la lógica de la cola vive en TriageQueue.
+    """
+
+    MENU = (
+        "\n=== Gestor de triaje - Urgencias ===\n"
+        "1. Añadir paciente\n"
+        "2. Llamar al siguiente paciente\n"
+        "3. Ver siguiente paciente (sin llamarlo)\n"
+        "4. Ver cola actual\n"
+        "5. Ver estadísticas\n"
+        "6. Salir"
+    )
+    EXIT_OPTION = "6"
+
+    def __init__(self, queue: TriageQueue | None = None) -> None:
+        # Se puede inyectar una cola (útil para tests); si no, se crea una nueva.
+        self._queue = queue if queue is not None else TriageQueue()
+        self._actions = {
+            "1": self._add_patient,
+            "2": self._call_next,
+            "3": self._show_next,
+            "4": self._show_queue,
+            "5": self._show_stats,
+        }
+
+    def run(self) -> None:
+        """Bucle principal: muestra el menú hasta que el usuario sale."""
+        while True:
+            print(self.MENU)
+            choice = self._read("Elige una opción (1-6): ")
+
+            # None = el usuario cerró la entrada (Ctrl+D / Ctrl+C).
+            if choice is None or choice == self.EXIT_OPTION:
+                print("Saliendo del gestor de triaje. ¡Hasta luego!")
+                break
+
+            action = self._actions.get(choice)
+            if action is None:
+                print("Opción no válida. Introduce un número del 1 al 6.")
+                continue
+            action()
+
+    # --- Lectura segura de datos -----------------------------------------
+
+    @staticmethod
+    def _read(prompt: str) -> str | None:
+        """Lee una línea sin espacios extra. Devuelve None si se interrumpe la entrada."""
+        try:
+            return input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+
+    def _read_triage_level(self) -> int | None:
+        """Pide el nivel hasta que sea válido. Enter vacío cancela la operación."""
+        while True:
+            raw = self._read("Nivel de triaje (1=crítico, 2=urgente, 3=estándar; Enter para cancelar): ")
+            if not raw:
+                return None
+            if raw in {"1", "2", "3"}:
+                return int(raw)
+            print("Nivel no válido. Escribe 1, 2 o 3.")
+
+    # --- Acciones del menú ------------------------------------------------
+
+    def _add_patient(self) -> None:
+        name = self._read("Nombre del paciente: ")
+        if not name:
+            print("El nombre no puede estar vacío. Operación cancelada.")
+            return
+
+        level = self._read_triage_level()
+        if level is None:
+            print("Operación cancelada.")
+            return
+
+        try:
+            patient = Patient(name, level)
+        except ValueError as error:
+            print(f"Datos no válidos: {error}")
+            return
+
+        self._queue.enqueue(patient)
+        print(f"Paciente registrado: {patient}")
+
+    def _call_next(self) -> None:
+        try:
+            patient = self._queue.dequeue()
+        except EmptyQueueError as error:
+            print(error)
+            return
+        print(f"Llamando a: {patient}")
+
+    def _show_next(self) -> None:
+        try:
+            patient = self._queue.peek()
+        except EmptyQueueError as error:
+            print(error)
+            return
+        print(f"Siguiente en ser atendido: {patient}")
+
+    def _show_queue(self) -> None:
+        patients = self._queue.list_queue()
+        if not patients:
+            print("La cola está vacía.")
+            return
+        print(f"Pacientes en espera ({len(patients)}), en orden de atención:")
+        for position, patient in enumerate(patients, start=1):
+            print(f"  {position}. {patient}")
+
+    def _show_stats(self) -> None:
+        stats = self._queue.stats()
+        print("Pacientes en espera por nivel de triaje:")
+        for level, count in stats.items():
+            print(f"  Nivel {level} ({LEVEL_LABELS[level]}): {count}")
+        print(f"  Total: {sum(stats.values())}")
+
+
+# ---------------------------------------------------------------------------
+# Punto de entrada
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    TriageCLI().run()
+
+
+if __name__ == "__main__":
+    main()
